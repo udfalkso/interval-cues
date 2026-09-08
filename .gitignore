@@ -1,0 +1,46 @@
+# dependencies
+node_modules/
+
+secrets/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env
+.env*.local
+.env*
+# ...but keep the committed template
+!.env.release.local.example
+
+# generated native folders
+/ios
+/android
+
+# iOS release output (archive / exported IPA from scripts/ios-*.sh)
+/build/
+latest.ipa
