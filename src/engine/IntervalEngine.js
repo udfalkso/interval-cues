@@ -17,6 +17,7 @@ import {
   setSpeechRate,
   setSelectedVoice,
   setCalloutMode,
+  setKeepAliveControl,
   resolveBestVoice,
 } from './speech';
 import haptics from '../utils/haptics';
@@ -56,9 +57,14 @@ export function EngineProvider({ children }) {
   const firedRef = useRef(new Set());
   const timelineRef = useRef(null);
   const tickRef = useRef(null);
+  const statusRef = useRef('idle');
 
   // Keep the screen on while a workout is active (does not affect background).
   const runningLike = status === 'running' || status === 'paused';
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   useEffect(() => {
     // Configure the keep-alive player and the initial (mixing) audio session.
@@ -67,8 +73,28 @@ export function EngineProvider({ children }) {
     } catch (e) {}
     setMixMode();
     resolveBestVoice(); // warm the voice list so the first callout isn't delayed
+
+    // Let speech.js briefly release the keep-alive track when it deactivates the
+    // audio session to let a paused app resume (pause mode). Only re-play it
+    // while a workout is actually running.
+    setKeepAliveControl({
+      pause: () => {
+        try {
+          keepAlive.pause();
+        } catch (e) {}
+      },
+      play: () => {
+        if (statusRef.current === 'running') {
+          try {
+            keepAlive.play();
+          } catch (e) {}
+        }
+      },
+    });
+
     return () => {
       clearTick();
+      setKeepAliveControl(null);
       try {
         keepAlive.pause();
       } catch (e) {}

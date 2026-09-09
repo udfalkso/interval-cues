@@ -6,7 +6,7 @@
 // All callouts are serialized through a queue so a burst can't race the switches.
 
 import * as Speech from 'expo-speech';
-import { AudioModule } from 'expo-audio';
+import { AudioModule, setIsAudioActiveAsync } from 'expo-audio';
 
 // The persistent part of our audio session. Only `interruptionMode` changes.
 const BASE_MODE = {
@@ -35,10 +35,34 @@ export function setCalloutMode(mode) {
   if (CALLOUT_INTERRUPTION[mode]) calloutMode = mode;
 }
 
+// The engine registers controls for its silent keep-alive player so we can
+// briefly release it while deactivating the session (see releaseOtherAudio).
+let keepAliveControl = null; // { pause(), play() }
+export function setKeepAliveControl(control) {
+  keepAliveControl = control;
+}
+
 // Between callouts we always mix, so the other app plays at full volume.
 export const setMixMode = () => setMode('mixWithOthers');
 // Entering a callout applies the mode for the current preference.
 const enterCalloutFocus = () => setMode(CALLOUT_INTERRUPTION[calloutMode]);
+
+// Hand audio focus back after a callout. For 'pause', a paused app only resumes
+// when OUR session actually deactivates (iOS posts .notifyOthersOnDeactivation).
+// Our silent keep-alive holds the session active, so briefly pause it, toggle
+// the session inactive->active, then resume it so the background timer survives.
+async function exitCalloutFocus() {
+  await setMixMode();
+  if (calloutMode !== 'pause') return; // duck/over resume via mixWithOthers alone
+  try {
+    keepAliveControl?.pause?.();
+    await setIsAudioActiveAsync(false);
+  } catch (e) {}
+  try {
+    await setIsAudioActiveAsync(true);
+  } catch (e) {}
+  keepAliveControl?.play?.();
+}
 
 // --- voice selection --------------------------------------------------------
 // The user can pick any installed voice (persisted as settings.voiceId). When
@@ -131,9 +155,9 @@ export function announce(text) {
 
 async function drain() {
   if (queue.length === 0) {
-    // Whole burst finished — release focus so the podcast resumes.
+    // Whole burst finished — release focus so the other audio resumes.
     speaking = false;
-    await setMixMode();
+    await exitCalloutFocus();
     return;
   }
   speaking = true;
@@ -162,7 +186,7 @@ export function stopSpeaking() {
   try {
     Speech.stop();
   } catch (e) {}
-  setMixMode();
+  exitCalloutFocus();
 }
 
 // Speak a one-off phrase (e.g. the Settings "test voice" / voice preview).
@@ -176,8 +200,8 @@ export async function speakOnce(text, voiceIdOverride) {
   Speech.speak(text, {
     voice,
     rate,
-    onDone: setMixMode,
-    onStopped: setMixMode,
-    onError: setMixMode,
+    onDone: exitCalloutFocus,
+    onStopped: exitCalloutFocus,
+    onError: exitCalloutFocus,
   });
 }
