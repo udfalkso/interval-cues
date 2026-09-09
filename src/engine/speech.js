@@ -1,13 +1,14 @@
-// Spoken callouts that PAUSE other audio (podcast/music) for the announcement,
-// then release focus so it resumes. All callouts are serialized through a queue
-// so a burst of cues can't race the audio-session mode switches.
+// Spoken callouts over other audio (podcast/music). How the other audio behaves
+// during a callout is user-configurable (calloutMode):
+//   'pause' -> take exclusive focus so the other app pauses, then resume it
+//   'duck'  -> lower the other app's volume during the callout (instant return)
+//   'over'  -> just speak on top; the other app keeps playing at full volume
+// All callouts are serialized through a queue so a burst can't race the switches.
 
 import * as Speech from 'expo-speech';
 import { AudioModule } from 'expo-audio';
 
-// The persistent part of our audio session. Only `interruptionMode` changes:
-//  - 'mixWithOthers' while idle/between callouts  -> podcast plays at full volume
-//  - 'doNotMix' around a callout                  -> iOS pauses the other app
+// The persistent part of our audio session. Only `interruptionMode` changes.
 const BASE_MODE = {
   playsInSilentMode: true,
   shouldPlayInBackground: true,
@@ -18,12 +19,26 @@ async function setMode(interruptionMode) {
   try {
     await AudioModule.setAudioModeAsync({ ...BASE_MODE, interruptionMode });
   } catch (e) {
-    // Non-fatal: worst case the podcast isn't paused for a callout.
+    // Non-fatal: worst case the other audio isn't paused/ducked for a callout.
   }
 }
 
+// interruption mode applied *around a callout* for each user preference.
+const CALLOUT_INTERRUPTION = {
+  pause: 'doNotMix',      // pauses the other app entirely
+  duck: 'duckOthers',     // lowers the other app's volume; returns instantly
+  over: 'mixWithOthers',  // no change — voice plays over full-volume audio
+};
+let calloutMode = 'pause';
+
+export function setCalloutMode(mode) {
+  if (CALLOUT_INTERRUPTION[mode]) calloutMode = mode;
+}
+
+// Between callouts we always mix, so the other app plays at full volume.
 export const setMixMode = () => setMode('mixWithOthers');
-export const setExclusiveMode = () => setMode('doNotMix');
+// Entering a callout applies the mode for the current preference.
+const enterCalloutFocus = () => setMode(CALLOUT_INTERRUPTION[calloutMode]);
 
 // --- voice selection --------------------------------------------------------
 // The user can pick any installed voice (persisted as settings.voiceId). When
@@ -123,8 +138,8 @@ async function drain() {
   }
   speaking = true;
   const text = queue.shift();
-  // Take exclusive focus first so the other app is paused before we speak.
-  await setExclusiveMode();
+  // Apply the callout audio behavior (pause / duck / over) before speaking.
+  await enterCalloutFocus();
   const voice = await currentVoice();
   const next = () => drain();
   try {
@@ -157,7 +172,7 @@ export async function speakOnce(text, voiceIdOverride) {
     Speech.stop();
   } catch (e) {}
   const voice = voiceIdOverride || (await currentVoice());
-  await setExclusiveMode();
+  await enterCalloutFocus();
   Speech.speak(text, {
     voice,
     rate,

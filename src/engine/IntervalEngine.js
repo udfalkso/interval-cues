@@ -16,6 +16,7 @@ import {
   setMixMode,
   setSpeechRate,
   setSelectedVoice,
+  setCalloutMode,
   resolveBestVoice,
 } from './speech';
 import haptics from '../utils/haptics';
@@ -80,7 +81,8 @@ export function EngineProvider({ children }) {
   useEffect(() => {
     setSpeechRate(settings?.speechRate ?? 0.5);
     setSelectedVoice(settings?.voiceId ?? null);
-  }, [settings?.speechRate, settings?.voiceId]);
+    setCalloutMode(settings?.calloutMode ?? 'pause');
+  }, [settings?.speechRate, settings?.voiceId, settings?.calloutMode]);
 
   const clearTick = () => {
     if (tickRef.current) {
@@ -128,6 +130,7 @@ export function EngineProvider({ children }) {
     setStatus('running');
     setSpeechRate(settings?.speechRate ?? 0.5);
     setSelectedVoice(settings?.voiceId ?? null);
+    setCalloutMode(settings?.calloutMode ?? 'pause');
     try {
       keepAlive.seekTo(0);
       keepAlive.play();

@@ -6,12 +6,18 @@ import { colors, spacing, radius, typography } from '../theme';
 import PressableScale from '../components/PressableScale';
 import haptics from '../utils/haptics';
 import useWorkoutsStore from '../store/useWorkoutsStore';
-import { speakOnce, setSpeechRate, setSelectedVoice, getVoices } from '../engine/speech';
+import { speakOnce, setSpeechRate, setSelectedVoice, setCalloutMode, getVoices } from '../engine/speech';
 
 const RATES = [
   { label: 'Slower', value: 0.4 },
   { label: 'Normal', value: 0.5 },
   { label: 'Faster', value: 0.6 },
+];
+
+const CALLOUT_MODES = [
+  { value: 'pause', label: 'Pause', hint: 'Pauses your music/podcast for each callout, then resumes it.' },
+  { value: 'duck', label: 'Lower', hint: 'Dips the volume during a callout and returns instantly — no resume delay.' },
+  { value: 'over', label: 'Speak over', hint: 'Keeps your audio at full volume and speaks over it.' },
 ];
 
 const PREVIEW = 'Fast for four minutes, interval one of four. Thirty seconds left.';
@@ -28,6 +34,7 @@ export default function SettingsScreen() {
   const updateSettings = useWorkoutsStore((s) => s.updateSettings);
   const rate = settings?.speechRate ?? 0.5;
   const voiceId = settings?.voiceId ?? null;
+  const calloutMode = settings?.calloutMode ?? 'pause';
 
   const [voices, setVoices] = useState(null); // null = loading
 
@@ -55,12 +62,37 @@ export default function SettingsScreen() {
     speakOnce(PREVIEW, id || undefined);
   };
 
+  const pickCalloutMode = (mode) => {
+    haptics.selection();
+    updateSettings({ calloutMode: mode });
+    setCalloutMode(mode);
+  };
+
+  const calloutHint = CALLOUT_MODES.find((m) => m.value === calloutMode)?.hint;
+
   const hasNice =
     voices && voices.some((v) => qualityBadge(v.quality) || v.id.toLowerCase().includes('siri'));
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ padding: spacing.lg }}>
-      <Text style={styles.sectionLabel}>Voice speed</Text>
+      <Text style={styles.sectionLabel}>During callouts</Text>
+      <View style={styles.rateRow}>
+        {CALLOUT_MODES.map((m) => {
+          const active = calloutMode === m.value;
+          return (
+            <Pressable
+              key={m.value}
+              onPress={() => pickCalloutMode(m.value)}
+              style={[styles.rateChip, active && styles.rateChipActive]}
+            >
+              <Text style={[styles.rateChipText, active && styles.rateChipTextActive]}>{m.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Text style={styles.calloutHint}>{calloutHint}</Text>
+
+      <Text style={[styles.sectionLabel, { marginTop: spacing.lg }]}>Voice speed</Text>
       <View style={styles.rateRow}>
         {RATES.map((r) => {
           const active = Math.abs(rate - r.value) < 0.001;
@@ -117,8 +149,9 @@ export default function SettingsScreen() {
       <View style={styles.note}>
         <Ionicons name="headset-outline" size={18} color={colors.textTertiary} />
         <Text style={styles.noteText}>
-          During a workout, your podcast or music pauses for each spoken callout and resumes right
-          after. Works with the screen locked and in your pocket.
+          Callouts work with your podcast or music playing, and with the screen locked and phone in
+          your pocket. If “Pause” feels slow to resume your audio, try “Lower” — it dips the volume
+          and returns instantly.
         </Text>
       </View>
     </ScrollView>
@@ -158,6 +191,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   sectionHint: { ...typography.footnote, color: colors.textTertiary, marginBottom: spacing.sm, marginTop: -spacing.xs },
+  calloutHint: { ...typography.footnote, color: colors.textTertiary, marginTop: spacing.sm, lineHeight: 18 },
   rateRow: { flexDirection: 'row', gap: spacing.sm },
   rateChip: {
     flex: 1,

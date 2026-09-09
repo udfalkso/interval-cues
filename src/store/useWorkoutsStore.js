@@ -52,6 +52,7 @@ const useWorkoutsStore = create(
       settings: {
         speechRate: 0.5, // expo-speech iOS default is ~0.5
         voiceId: null, // null = auto-pick the best installed voice
+        calloutMode: 'pause', // 'pause' | 'duck' | 'over' — other audio during a callout
       },
 
       setHydrated: () => set({ isHydrated: true }),
