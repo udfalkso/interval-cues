@@ -59,7 +59,11 @@ export default function App() {
               <Stack.Screen
                 name="Settings"
                 component={SettingsScreen}
-                options={{ presentation: 'modal', title: 'Settings' }}
+                options={{
+                  presentation: 'modal',
+                  headerShown: false,
+                  sheetGrabberVisible: true,
+                }}
               />
             </Stack.Navigator>
           </NavigationContainer>

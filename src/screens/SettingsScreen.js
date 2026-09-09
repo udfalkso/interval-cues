@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, spacing, radius, typography } from '../theme';
 import PressableScale from '../components/PressableScale';
@@ -29,7 +30,8 @@ function qualityBadge(quality) {
   return null;
 }
 
-export default function SettingsScreen() {
+export default function SettingsScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const settings = useWorkoutsStore((s) => s.settings);
   const updateSettings = useWorkoutsStore((s) => s.updateSettings);
   const rate = settings?.speechRate ?? 0.5;
@@ -74,8 +76,21 @@ export default function SettingsScreen() {
     voices && voices.some((v) => qualityBadge(v.quality) || v.id.toLowerCase().includes('siri'));
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: spacing.lg }}>
-      <Text style={styles.sectionLabel}>During callouts</Text>
+    <View style={styles.sheet}>
+      <View style={styles.grabberWrap}>
+        <View style={styles.grabber} />
+      </View>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Settings</Text>
+        <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.doneBtn}>
+          <Text style={styles.doneText}>Done</Text>
+        </Pressable>
+      </View>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + spacing.xl }}
+      >
+        <Text style={styles.sectionLabel}>During callouts</Text>
       <View style={styles.rateRow}>
         {CALLOUT_MODES.map((m) => {
           const active = calloutMode === m.value;
@@ -154,7 +169,8 @@ export default function SettingsScreen() {
           and returns instantly.
         </Text>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -182,6 +198,22 @@ function VoiceRow({ name, subtitle, badge, selected, onPress }) {
 }
 
 const styles = StyleSheet.create({
+  sheet: { flex: 1, backgroundColor: colors.background },
+  grabberWrap: { alignItems: 'center', paddingTop: spacing.sm, paddingBottom: spacing.xs },
+  grabber: { width: 40, height: 5, borderRadius: 3, backgroundColor: colors.borderMedium },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    paddingTop: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderLight,
+  },
+  headerTitle: { ...typography.title2, color: colors.textPrimary },
+  doneBtn: { paddingHorizontal: spacing.xs, paddingVertical: spacing.xs },
+  doneText: { ...typography.headline, color: colors.accent },
   container: { flex: 1, backgroundColor: colors.background },
   sectionLabel: {
     ...typography.footnote,
