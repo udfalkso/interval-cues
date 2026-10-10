@@ -24,8 +24,8 @@ module.exports = {
       bundleIdentifier: 'com.udi.intervals',
       appleTeamId: 'K5FGQ428RU',
       infoPlist: {
-        // audio background mode + a persistent (silent) audio session is what
-        // keeps our JS timer alive while the screen is locked / phone pocketed.
+        // The native workout controller keeps playback and cue timing active
+        // while another app is foregrounded or the phone is locked.
         UIBackgroundModes: ['audio'],
         ITSAppUsesNonExemptEncryption: false,
       },

@@ -3,9 +3,10 @@
 //   'pause' -> take exclusive focus so the other app pauses, then resume it
 //   'duck'  -> lower the other app's volume during the callout (instant return)
 //   'over'  -> just speak on top; the other app keeps playing at full volume
-// All callouts are serialized through a queue so a burst can't race the switches.
+// Native iPhone workouts use WorkoutAudio; this handles fallback speech only.
 
 import * as Speech from 'expo-speech';
+import { nativeAudio } from './nativeAudio';
 import { AudioModule, setIsAudioActiveAsync } from 'expo-audio';
 
 // The persistent part of our audio session. Only `interruptionMode` changes.
@@ -30,6 +31,7 @@ const CALLOUT_INTERRUPTION = {
   over: 'mixWithOthers',  // no change — voice plays over full-volume audio
 };
 let calloutMode = 'pause';
+let focusedMode = null;
 
 export function setCalloutMode(mode) {
   if (CALLOUT_INTERRUPTION[mode]) calloutMode = mode;
@@ -45,15 +47,21 @@ export function setKeepAliveControl(control) {
 // Between callouts we always mix, so the other app plays at full volume.
 export const setMixMode = () => setMode('mixWithOthers');
 // Entering a callout applies the mode for the current preference.
-const enterCalloutFocus = () => setMode(CALLOUT_INTERRUPTION[calloutMode]);
+const enterCalloutFocus = async () => {
+  const mode = calloutMode;
+  await setMode(CALLOUT_INTERRUPTION[mode]);
+  focusedMode = mode;
+};
 
 // Hand audio focus back after a callout. For 'pause', a paused app only resumes
 // when OUR session actually deactivates (iOS posts .notifyOthersOnDeactivation).
 // Our silent keep-alive holds the session active, so briefly pause it, toggle
 // the session inactive->active, then resume it so the background timer survives.
 async function exitCalloutFocus() {
+  const releaseSession = focusedMode === 'pause';
+  focusedMode = null;
   await setMixMode();
-  if (calloutMode !== 'pause') return; // duck/over resume via mixWithOthers alone
+  if (!releaseSession) return; // duck/over resume via mixWithOthers alone
   try {
     keepAliveControl?.pause?.();
     await setIsAudioActiveAsync(false);
@@ -70,6 +78,8 @@ async function exitCalloutFocus() {
 let selectedVoiceId = null;
 let bestVoice; // identifier string, or undefined for the system default
 let voicePromise;
+
+export const cachedVoice = () => bestVoice;
 
 export function setSelectedVoice(id) {
   selectedVoiceId = id || null;
@@ -138,70 +148,109 @@ export async function getVoices() {
   }
 }
 
-// --- serialized announcer ---------------------------------------------------
-let queue = [];
-let speaking = false;
+// --- fallback announcer (Expo Go / Android) ---------------------------------
+// Latest prompt wins. Audio mutations are serialized; utterance callbacks and
+// async voice lookup can never resurrect a cancelled or superseded prompt.
+let generation = 0;
+let operation = Promise.resolve();
+let watchdog;
 let rate = 0.5;
 
 export function setSpeechRate(r) {
   if (typeof r === 'number' && r > 0) rate = r;
 }
 
-export function announce(text) {
-  if (!text) return;
-  queue.push(text);
-  if (!speaking) drain();
+function serialize(task) {
+  operation = operation.catch(() => {}).then(task).catch((error) => {
+    console.warn('[Workout speech]', error);
+  });
+  return operation;
 }
 
-async function drain() {
-  if (queue.length === 0) {
-    // Whole burst finished — release focus so the other audio resumes.
-    speaking = false;
-    await exitCalloutFocus();
+function clearWatchdog() {
+  clearTimeout(watchdog);
+  watchdog = undefined;
+}
+
+export function announce(text, { expiresAt = Date.now() + 15000, startBy = expiresAt, voice, retry = false } = {}) {
+  if (!text) return;
+  const id = ++generation;
+  clearWatchdog();
+  return serialize(async () => {
+    if (id !== generation) return;
+    await Speech.stop();
+    const resolvedVoice = voice || await currentVoice();
+    if (id !== generation) return;
+    if (Date.now() >= startBy || Date.now() >= expiresAt) {
+      await exitCalloutFocus();
+      return;
+    }
+    await enterCalloutFocus();
+    if (id !== generation) return;
+    let finished = false;
+    const finish = () => {
+      if (finished || id !== generation) return;
+      finished = true;
+      clearWatchdog();
+      serialize(async () => {
+        if (id !== generation) return;
+        await Speech.stop();
+        if (id === generation) await exitCalloutFocus();
+      });
+    };
+    const expire = () => {
+      if (id !== generation) return;
+      finish();
+    };
+    watchdog = setTimeout(() => {
+      if (id !== generation) return;
+      if (!retry && Date.now() < startBy && Date.now() < expiresAt) {
+        console.warn('[Workout speech] Retrying stalled prompt');
+        announce(text, { expiresAt, startBy, voice: resolvedVoice, retry: true });
+      } else {
+        expire();
+      }
+    }, Math.max(0, Math.min(3000, startBy - Date.now(), expiresAt - Date.now())));
+    try {
+      Speech.speak(text, {
+        voice: resolvedVoice,
+        rate,
+        useApplicationAudioSession: true,
+        onStart: () => {
+          if (finished || id !== generation) return;
+          clearWatchdog();
+          const durationLimit = Math.min(90000, Math.max(10000, text.length / (8 * rate) * 1000 + 5000));
+          watchdog = setTimeout(expire, Math.max(0, Math.min(durationLimit, expiresAt - Date.now())));
+        },
+        onDone: finish,
+        onStopped: finish,
+        onError: finish,
+      });
+    } catch (error) {
+      finish();
+    }
+  });
+}
+
+export function stopSpeaking() {
+  const id = ++generation;
+  clearWatchdog();
+  return serialize(async () => {
+    await Speech.stop();
+    if (id === generation) await exitCalloutFocus();
+  });
+}
+
+// Native previews share the workout audio owner, avoiding conflicting sessions.
+export async function speakOnce(text, voiceIdOverride) {
+  const voice = voiceIdOverride || await currentVoice();
+  if (nativeAudio) {
+    try {
+      await nativeAudio.preview(text, voice ?? null, rate, calloutMode);
+    } catch (error) {
+      console.warn('[Workout audio preview]', error);
+    }
     return;
   }
-  speaking = true;
-  const text = queue.shift();
-  // Apply the callout audio behavior (pause / duck / over) before speaking.
-  await enterCalloutFocus();
-  const voice = await currentVoice();
-  const next = () => drain();
-  try {
-    Speech.speak(text, {
-      voice,
-      rate,
-      onDone: next,
-      onStopped: next,
-      onError: next,
-    });
-  } catch (e) {
-    next();
-  }
-}
-
-// Cancel any queued/in-flight speech and hand audio focus back immediately.
-export function stopSpeaking() {
-  queue = [];
-  speaking = false;
-  try {
-    Speech.stop();
-  } catch (e) {}
-  exitCalloutFocus();
-}
-
-// Speak a one-off phrase (e.g. the Settings "test voice" / voice preview).
-// Pass voiceIdOverride to audition a specific voice without selecting it.
-export async function speakOnce(text, voiceIdOverride) {
-  try {
-    Speech.stop();
-  } catch (e) {}
-  const voice = voiceIdOverride || (await currentVoice());
-  await enterCalloutFocus();
-  Speech.speak(text, {
-    voice,
-    rate,
-    onDone: exitCalloutFocus,
-    onStopped: exitCalloutFocus,
-    onError: exitCalloutFocus,
-  });
+  return announce(text, { voice, expiresAt: Date.now() + 90000 });
 }

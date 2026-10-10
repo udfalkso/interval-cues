@@ -1,7 +1,7 @@
 # Intervals
 
 A personal iPhone app for interval-running workouts with **spoken audio callouts** that
-play over a podcast/music — it pauses the other audio for each callout, then resumes.
+play alongside a podcast/music — it pauses spoken audio or lowers music for each callout, then resumes.
 Works with the screen locked and the phone in your pocket. Built with Expo (SDK 54) /
 React Native, reusing the scaffolding and iOS release toolchain from the eden app.
 
@@ -13,15 +13,28 @@ React Native, reusing the scaffolding and iOS release toolchain from the eden ap
 - **Configure** multiple workouts as ordered steps: plain segments (Warm up, Fast, Slow,
   Cool down, Walk, or Custom) and **repeat blocks** (e.g. `4× [Fast 4:00, Slow 3:00]`).
 - **Run** a workout: a big countdown ring, current/next phase, and a running total.
-- **Callouts** are spoken with the system voice (`expo-speech`) at each phase change, an
-  optional "30 seconds left", and a completion cue. During each callout the app takes
-  exclusive audio focus so the podcast pauses, then releases it so the podcast resumes.
-- **Background survival**: a silent looping track (`assets/silence.wav`) keeps the iOS
-  audio session — and our JS timer — alive while locked. Timing is computed from the wall
-  clock, so cues never drift even if the tick is throttled in the background.
+- **Callouts** use the system voice at each phase change, an optional "30 seconds left",
+  and completion. Pause mode uses iOS's spoken-audio interruption option: compatible
+  podcasts pause and music lowers; Lower ducks other audio; Over mixes at full volume.
+  All modes remain mixable so prompts can take focus from the background.
+- **Background timing on iPhone**: the local `WorkoutAudio` Expo module owns a native
+  monotonic clock, speech synthesizer and looping audio player. JavaScript updates the
+  screen but does not schedule or play cues in development/release iPhone builds. The
+  native loop maintains background audio eligibility while Strava or another app is in
+  front, with other audio playing or the screen locked. Focus release and loop restart
+  happen together on the native queue, without waiting for JavaScript to wake up.
+- **Recovery**: old phases and warnings are discarded after a delay/interruption. Only
+  the latest relevant cue plays, with the actual remaining duration for a late phase.
+  Speech has a start watchdog, one retry and a bounded completion deadline. Cancelled
+  utterances cannot release a newer cue's audio focus. Audio interruptions, Bluetooth
+  route changes and media-service resets trigger recovery; timing continues through
+  system interruptions. iOS can still interrupt audio for calls or stop a force-quit app.
+- **Fallback**: Expo Go and Android use the JavaScript announcer with stale-cue filtering
+  and speech watchdogs. The native background implementation is iPhone-specific.
 
 Key files: `src/engine/timeline.js` (pure schedule logic, unit-tested), `src/engine/IntervalEngine.js`
-(run engine + keep-alive + cue firing), `src/engine/speech.js` (pause-others announcer),
+(run controls + native state), `modules/workout-audio/ios/` (background clock + audio),
+`src/engine/speech.js` (voice picker + fallback announcer),
 `src/screens/*` (Workouts / Edit / Run / Settings), `src/theme.js` (design tokens).
 
 ## Develop
@@ -29,13 +42,27 @@ Key files: `src/engine/timeline.js` (pure schedule logic, unit-tested), `src/eng
 ```bash
 yarn                 # install
 yarn test            # run the timeline unit tests
+yarn test:native     # native scheduling regression checks (requires Xcode/Swift)
+yarn ios:prebuild    # link the local native module when upgrading an existing build
 yarn ios:sim         # debug build + live reload on a booted simulator
 yarn ios             # build & run on a connected device (needed to test audio)
 ```
 
-Audio ducking + background behavior can only be validated on a **real device**: start a
-podcast, start a short workout, lock the phone, and confirm callouts fire on time and the
-podcast pauses/resumes.
+The native module requires a new iPhone build; a JavaScript-only update cannot install it.
+Audio ducking + background behavior must also be validated on a **real device**:
+
+1. Start a podcast and Strava GPS recording, then a short interval workout in Intervals.
+2. Leave Strava in front for several transitions; repeat with the phone locked for at
+   least ten minutes. Confirm each prompt arrives on time, without a burst of old cues.
+3. Check Pause, Lower and Over with both podcast and music playback. Podcast pausing
+   depends on the other app identifying its session as spoken audio.
+4. Pause/resume, skip a phase while paused, stop and immediately start a new workout.
+   Confirm cancelled prompts do not return and other audio resumes after callouts.
+5. Disconnect/reconnect Bluetooth headphones and interrupt with a call or Siri. On
+   recovery, confirm the current interval is announced without obsolete warnings.
+
+Device logs under subsystem `com.udi.intervals`, category `WorkoutAudio` record scheduled
+and actual speech-start times, retries and audio-session errors.
 
 ## Release to TestFlight
 

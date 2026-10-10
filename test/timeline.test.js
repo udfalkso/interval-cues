@@ -5,6 +5,7 @@ import {
   totalSeconds,
   humanizeDuration,
   phaseText,
+  takeDueCue,
 } from '../src/engine/timeline';
 
 // Udi's default workout: 10m warm up, 4x [4m fast, 3m slow], 7m cool down.
@@ -118,5 +119,31 @@ describe('phaseText', () => {
   it('uses a custom label for custom-kind phases', () => {
     const p = { kind: 'custom', label: 'Sprint', seconds: 30, rep: null };
     expect(phaseText(p)).toBe('Sprint for 30 seconds.');
+  });
+});
+
+describe('delayed cue recovery', () => {
+  const timeline = buildTimeline(defaultWorkout);
+
+  it('drops previous phases and warnings after a background delay', () => {
+    const fired = new Set();
+    expect(takeDueCue(timeline, 605, fired)).toMatchObject({
+      type: 'phase', at: 600, text: 'Fast. 3 minutes 55 seconds remaining.',
+    });
+    expect(takeDueCue(timeline, 605, fired)).toBeNull();
+  });
+
+  it('drops late warnings instead of saying 30 seconds when less time remains', () => {
+    const fired = new Set();
+    takeDueCue(timeline, 0, fired);
+    expect(takeDueCue(timeline, 574, fired)).toBeNull();
+  });
+
+  it('plays a fresh warning', () => {
+    expect(takeDueCue(timeline, 571, new Set())).toMatchObject({ type: 'warn', at: 570 });
+  });
+
+  it('does not replay completion long after an interruption', () => {
+    expect(takeDueCue(timeline, timeline.total + 16, new Set())).toBeNull();
   });
 });

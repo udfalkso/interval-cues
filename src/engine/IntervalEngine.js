@@ -6,10 +6,12 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { Alert, AppState } from 'react-native';
 import { useAudioPlayer } from 'expo-audio';
 import { useKeepAwake } from 'expo-keep-awake';
 
-import { buildTimeline } from './timeline';
+import { buildTimeline, cueId, takeDueCue } from './timeline';
+import { nativeAudio, nativeSchedule } from './nativeAudio';
 import {
   announce,
   stopSpeaking,
@@ -19,19 +21,16 @@ import {
   setCalloutMode,
   setKeepAliveControl,
   resolveBestVoice,
+  cachedVoice,
 } from './speech';
 import haptics from '../utils/haptics';
 import useWorkoutsStore from '../store/useWorkoutsStore';
 
-// Silent looping track: an actively-playing audio session under
-// UIBackgroundModes:['audio'] is what keeps our JS timer running while the
-// screen is locked / phone is pocketed.
+// Fallback only. Native iPhone builds own their loop and clock in WorkoutAudio.
 const SILENCE = require('../../assets/silence.wav');
 
 const EngineContext = createContext(null);
 export const useEngine = () => useContext(EngineContext);
-
-const cueId = (cue) => `${cue.type}:${cue.at}:${cue.phaseKey || ''}`;
 
 function phaseAt(phases, elapsed) {
   let current = phases[0] || null;
@@ -43,7 +42,7 @@ function phaseAt(phases, elapsed) {
 }
 
 export function EngineProvider({ children }) {
-  const keepAlive = useAudioPlayer(SILENCE);
+  const keepAlive = useAudioPlayer(nativeAudio ? null : SILENCE, { keepAudioSessionActive: true });
   const settings = useWorkoutsStore((s) => s.settings);
 
   const [status, setStatus] = useState('idle'); // idle | running | paused | done
@@ -58,6 +57,7 @@ export function EngineProvider({ children }) {
   const timelineRef = useRef(null);
   const tickRef = useRef(null);
   const statusRef = useRef('idle');
+  const actionRef = useRef(0);
 
   // Keep the screen on while a workout is active (does not affect background).
   const runningLike = status === 'running' || status === 'paused';
@@ -67,6 +67,35 @@ export function EngineProvider({ children }) {
   }, [status]);
 
   useEffect(() => {
+    if (nativeAudio) {
+      resolveBestVoice();
+      const applyState = (state) => {
+        if (!timelineRef.current) return;
+        statusRef.current = state.status;
+        setStatus(state.status);
+        setElapsed(state.elapsed);
+      };
+      const subscription = nativeAudio.addListener('onState', applyState);
+      const diagnostics = nativeAudio.addListener('onDiagnostic', (event) => {
+        if (event.event === 'cueScheduled' && AppState.currentState === 'active') {
+          if (event.type === 'phase') haptics.medium();
+          else if (event.type === 'done') haptics.success();
+        }
+        if (event.error || event.event === 'speechRetry') {
+          console.warn('[Workout audio]', event);
+        }
+      });
+      const appState = AppState.addEventListener('change', (state) => {
+        if (state === 'active') nativeAudio.getState().then(applyState).catch(console.warn);
+      });
+      return () => {
+        actionRef.current += 1;
+        subscription.remove();
+        diagnostics.remove();
+        appState.remove();
+        nativeAudio.stop().catch(console.warn);
+      };
+    }
     // Configure the keep-alive player and the initial (mixing) audio session.
     try {
       keepAlive.loop = true;
@@ -108,6 +137,13 @@ export function EngineProvider({ children }) {
     setSpeechRate(settings?.speechRate ?? 0.5);
     setSelectedVoice(settings?.voiceId ?? null);
     setCalloutMode(settings?.calloutMode ?? 'pause');
+    if (nativeAudio) {
+      nativeAudio.configure(
+        settings?.voiceId ?? null,
+        settings?.speechRate ?? 0.5,
+        settings?.calloutMode ?? 'pause',
+      ).catch(console.warn);
+    }
   }, [settings?.speechRate, settings?.voiceId, settings?.calloutMode]);
 
   const clearTick = () => {
@@ -126,13 +162,15 @@ export function EngineProvider({ children }) {
     const e = computeElapsed();
     setElapsed(e);
 
-    for (const cue of tl.cues) {
-      if (cue.at <= e && !firedRef.current.has(cueId(cue))) {
-        firedRef.current.add(cueId(cue));
-        if (cue.type === 'phase') haptics.medium();
-        else if (cue.type === 'done') haptics.success();
-        announce(cue.text);
-      }
+    const cue = takeDueCue(tl, e, firedRef.current);
+    if (cue) {
+      if (cue.type === 'phase') haptics.medium();
+      else if (cue.type === 'done') haptics.success();
+      const expiresAt = Date.now() + (cue.validUntil - e) * 1000;
+      const startBy = cue.type === 'warn'
+        ? Math.min(Date.now() + (3 - (e - cue.at)) * 1000, expiresAt)
+        : expiresAt;
+      announce(cue.text, { expiresAt, startBy });
     }
 
     if (e >= tl.total) finish();
@@ -154,9 +192,24 @@ export function EngineProvider({ children }) {
     pausedAccumRef.current = 0;
     setElapsed(0);
     setStatus('running');
+    statusRef.current = 'running';
     setSpeechRate(settings?.speechRate ?? 0.5);
     setSelectedVoice(settings?.voiceId ?? null);
     setCalloutMode(settings?.calloutMode ?? 'pause');
+    if (nativeAudio) {
+      const action = ++actionRef.current;
+      nativeAudio.start(
+        nativeSchedule(tl), tl.total, settings?.voiceId || cachedVoice() || null,
+        settings?.speechRate ?? 0.5, settings?.calloutMode ?? 'pause',
+      ).catch((error) => {
+        if (action !== actionRef.current) return;
+        statusRef.current = 'idle';
+        setStatus('idle');
+        nativeAudio.stop().catch(console.warn);
+        Alert.alert('Audio could not start', error.message || 'Please try starting the workout again.');
+      });
+      return;
+    }
     try {
       keepAlive.seekTo(0);
       keepAlive.play();
@@ -167,6 +220,11 @@ export function EngineProvider({ children }) {
 
   const pause = () => {
     if (status !== 'running') return;
+    if (nativeAudio) {
+      actionRef.current += 1;
+      nativeAudio.pause().catch(console.warn);
+      return;
+    }
     pausedAtRef.current = Date.now();
     setStatus('paused');
     clearTick();
@@ -178,6 +236,10 @@ export function EngineProvider({ children }) {
 
   const resume = () => {
     if (status !== 'paused') return;
+    if (nativeAudio) {
+      nativeAudio.resume().catch((error) => Alert.alert('Audio could not resume', error.message));
+      return;
+    }
     pausedAccumRef.current += Date.now() - pausedAtRef.current;
     setStatus('running');
     try {
@@ -187,12 +249,15 @@ export function EngineProvider({ children }) {
   };
 
   const stop = () => {
+    actionRef.current += 1;
+    if (nativeAudio) nativeAudio.stop().catch(console.warn);
     clearTick();
-    stopSpeaking();
+    if (!nativeAudio) stopSpeaking();
     try {
       keepAlive.pause();
     } catch (e) {}
     setStatus('idle');
+    statusRef.current = 'idle';
     setElapsed(0);
     timelineRef.current = null;
     setTimeline(null);
@@ -206,14 +271,26 @@ export function EngineProvider({ children }) {
       keepAlive.pause();
     } catch (e) {}
     setStatus('done');
-    // Let the "workout complete" utterance finish; its queue drain restores
+    // Let the "workout complete" utterance finish; its callback restores
     // mixing mode. Nothing else to schedule.
   };
 
   const skipPhase = () => {
     const tl = timelineRef.current;
     if (!tl || (status !== 'running' && status !== 'paused')) return;
-    const e = computeElapsed();
+    if (nativeAudio) {
+      // Read the native clock, rather than a possibly delayed UI update.
+      nativeAudio.getState().then((state) => {
+        if (timelineRef.current !== tl || !['running', 'paused'].includes(state.status)) return;
+        const cur = phaseAt(tl.phases, state.elapsed);
+        const next = tl.phases.find((p) => p.startSec > (cur ? cur.startSec : -1));
+        return nativeAudio.seek(next ? next.startSec : tl.total);
+      }).catch(console.warn);
+      return;
+    }
+    const e = status === 'paused'
+      ? (pausedAtRef.current - startedAtRef.current - pausedAccumRef.current) / 1000
+      : computeElapsed();
     const cur = phaseAt(tl.phases, e);
     const next = tl.phases.find((p) => p.startSec > (cur ? cur.startSec : -1));
     const target = next ? next.startSec : tl.total;

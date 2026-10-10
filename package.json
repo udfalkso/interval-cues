@@ -1,6 +1,6 @@
 {
   "name": "intervals",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "index.js",
   "private": true,
   "scripts": {
@@ -12,6 +12,7 @@
     "ios:export": "bash scripts/ios-export.sh",
     "ios:testflight": "bash scripts/ios-testflight.sh",
     "test": "jest",
+    "test:native": "bash scripts/test-native-audio.sh",
     "android": "expo run:android"
   },
   "dependencies": {

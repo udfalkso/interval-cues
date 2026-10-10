@@ -126,3 +126,23 @@ export function buildTimeline(workout) {
     total: phases.reduce((s, p) => s + p.seconds, 0),
   };
 }
+
+export const cueId = (cue) => `${cue.type}:${cue.at}:${cue.phaseKey || ''}`;
+
+// JS fallback only: native iPhone builds make this decision in CueSchedule.
+export function takeDueCue(timeline, elapsed, fired) {
+  let latest = null;
+  for (const cue of timeline.cues) {
+    if (cue.at > elapsed || fired.has(cueId(cue))) continue;
+    fired.add(cueId(cue));
+    const phase = timeline.phases.find((p) => p.key === cue.phaseKey);
+    const validUntil = phase?.endSec ?? timeline.total + 15;
+    if (elapsed >= validUntil || (cue.type === 'warn' && elapsed - cue.at > 3)) continue;
+    let text = cue.text;
+    if (cue.type === 'phase' && elapsed - cue.at > 3 && phase) {
+      text = `${spokenName(phase)}. ${humanizeDuration(Math.ceil(validUntil - elapsed))} remaining.`;
+    }
+    latest = { ...cue, text, validUntil };
+  }
+  return latest;
+}

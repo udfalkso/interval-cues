@@ -16,7 +16,7 @@ const RATES = [
 ];
 
 const CALLOUT_MODES = [
-  { value: 'pause', label: 'Pause', hint: 'Pauses your music/podcast for each callout, then resumes it.' },
+  { value: 'pause', label: 'Pause', hint: 'Pauses spoken audio such as podcasts for each callout; lowers music.' },
   { value: 'duck', label: 'Lower', hint: 'Dips the volume during a callout and returns instantly — no resume delay.' },
   { value: 'over', label: 'Speak over', hint: 'Keeps your audio at full volume and speaks over it.' },
 ];
