@@ -8,7 +8,11 @@ Saved description, promotional text, keywords, subtitle, support URL, privacy UR
 
 Uploaded five original 1206×2622 iPhone screenshots to APP_IPHONE_61 in this order: active interval, workout editor, audio settings, workout list, warm-up. All five assets are COMPLETE. Sources: IMG_9752.PNG, IMG_9754.PNG, IMG_9753.PNG, IMG_9750.PNG, IMG_9751.PNG. Copies are saved under screenshots/en-US/iphone.
 
-Remaining: upload iPad screenshots (the build supports iPad); publish the App Privacy answers in App Store Connect. Based on the current implementation, the app collects no data. Support emails are described separately in the privacy policy.
+Captured genuine iPad Pro 13-inch simulator screenshots at 2064×2752, converted to JPEG for Apple’s no-alpha requirement, and uploaded both to APP_IPAD_PRO_3GEN_129. Both assets are COMPLETE. The simulator Release build succeeded.
+
+Saved the regulated medical device declaration as No through App Store Connect. Saved App Privacy answers as Data Not Collected. Publication is awaiting user confirmation of Apple’s accuracy/compliance agreement.
+
+The final asc validation against the attached IPA reports zero blocking errors. App Privacy publication still needs completion in the browser. Based on the current implementation, the app collects no data. Support emails are described separately in the privacy policy.
 
 Apple does not permit editing What's New for this initial release. whatsNew.txt is a draft retained for reference, not a saved App Store field.
 
