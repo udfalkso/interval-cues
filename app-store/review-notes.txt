@@ -1,0 +1,7 @@
+No account, sign-in, subscription, or demo credentials are required. The app includes a Cardio Intervals workout. You can also create a short workout to test phase changes quickly.
+
+To test audio cues, start music or a podcast in another app, then start a workout. Settings offers Pause, Lower, and Over audio modes; podcast pausing depends on the other app identifying its audio as spoken content. Lock the iPhone or switch to another app to test background cues.
+
+The audio background mode supports the native workout timer and spoken interval announcements during an active workout. It is not used to stream content. A silent audio loop maintains the audio session between announcements. Stop the workout to end the session.
+
+Saved workouts and preferences are stored locally. The app does not record audio, track location, or integrate with HealthKit.
