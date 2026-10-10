@@ -6,7 +6,9 @@ Attached processed build 1 (1.0.1), ID 920590f3-f588-4efb-8e7b-d03a4316a780. Enc
 
 Saved description, promotional text, keywords, subtitle, support URL, privacy URL, copyright, review contact and instructions, Health & Fitness / Sports categories, content rights, and age-rating answers.
 
-Remaining: upload iPhone and iPad screenshots (the build supports iPad); publish the App Privacy answers in App Store Connect. Based on the current implementation, the app collects no data. Support emails are described separately in the privacy policy.
+Uploaded five original 1206×2622 iPhone screenshots to APP_IPHONE_61 in this order: active interval, workout editor, audio settings, workout list, warm-up. All five assets are COMPLETE. Sources: IMG_9752.PNG, IMG_9754.PNG, IMG_9753.PNG, IMG_9750.PNG, IMG_9751.PNG. Copies are saved under screenshots/en-US/iphone.
+
+Remaining: upload iPad screenshots (the build supports iPad); publish the App Privacy answers in App Store Connect. Based on the current implementation, the app collects no data. Support emails are described separately in the privacy policy.
 
 Apple does not permit editing What's New for this initial release. whatsNew.txt is a draft retained for reference, not a saved App Store field.
 
